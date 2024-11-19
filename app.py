@@ -225,7 +225,7 @@ if selected_methods:
         # Pairwise Scatter Plot
         st.subheader("Pairwise scatter plot")
         col_x, col_y = st.columns(2)
-        with col_x:
+        with col_y:
             st.markdown(
                 """
                 <style>
@@ -239,8 +239,8 @@ if selected_methods:
                 """, 
                 unsafe_allow_html=True
             )
-            axis_x = st.selectbox("", methods, index=methods.index("NN - pretrained-tiny"), label_visibility="collapsed")
-        with col_y:
+            axis_y = st.selectbox("", methods, index=methods.index("NN - pretrained-large"), label_visibility="collapsed")
+        with col_x:
             st.markdown(
                 """
                 <style>
@@ -254,7 +254,7 @@ if selected_methods:
                 """, 
                 unsafe_allow_html=True
             )
-            axis_y = st.selectbox("", methods, index=methods.index("NN - pretrained-large"), label_visibility="collapsed")
+            axis_x = st.selectbox("", methods, index=methods.index("NN - pretrained-tiny"), label_visibility="collapsed")
         fig_ps, ax_ps = plot_pairwise_scatter(
             combined_df[axis_x], combined_df[axis_y], axis_x, axis_y
         )
