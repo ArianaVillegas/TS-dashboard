@@ -38,7 +38,7 @@ else:
 @st.cache_data
 def load_classifiers():
     # return list(uni_classifiers_2023.keys())
-    cls = get_available_estimators(task="classification", return_dataframe=False)
+    cls = get_available_estimators(task="classification")
     return cls
 
 # Load accuracy results and cache for efficiency
