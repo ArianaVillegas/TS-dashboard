@@ -304,5 +304,34 @@ if selected_methods:
             height=500
         )
         st.altair_chart(scatter, use_container_width=True)
+        
+    length_classes, placeholder = st.columns(2)
+    with length_classes:
+        st.subheader("TimeSeries Length vs Number of Classes")
+        method = st.selectbox("", list(custom_results.columns), index=select_methods.index("NN - pretrained-small"), label_visibility="collapsed", key="tsvsc")
+        sel_method = custom_results[[method]]
+        sel_method["dataset"] = sel_method.index
+        sel_method["diff"] = sel_method[method] - best_results
+        sel_method["length"] = meta_df["length"]
+        sel_method["classes"] = meta_df["classes"]
+        print("SEL METHOD")
+        # Define the custom color scale
+        min_diff = sel_method["diff"].min()
+        max_diff = sel_method["diff"].max()
+        custom_scale = alt.Scale(
+            domain=[min_diff, 0, max_diff],  # Min value, midpoint (0), max value
+            range=["red", "lightgray", "green"]  # Negative -> red, neutral -> gray, positive -> green
+        )
+        scatter = alt.Chart(sel_method).mark_circle(size=100).encode(
+            x=alt.X("length", title="Time Series Length"),
+            y=alt.Y("classes", title="Number of Classes"),
+            color=alt.Color("diff", scale=custom_scale, title="Accuracy Difference"),
+            tooltip=["dataset", "length", "classes", "diff"]
+        ).properties(
+            title="Time Series Length vs Number of Classes",
+            width=700,
+            height=500
+        )
+        st.altair_chart(scatter, use_container_width=True)
 else:
     st.write("Please select at least one method to display results.")
