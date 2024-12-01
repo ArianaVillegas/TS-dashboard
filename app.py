@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
 import matplotlib
 from matplotlib.patches import Rectangle
 from aeon.benchmarking.results_loaders import get_available_estimators, get_estimator_results_as_array
@@ -97,13 +98,13 @@ csv_path = "classification_results.csv"
 custom_results = None
 custom_results = load_custom_results(csv_path)
 custom_results = custom_results.loc[list(univariate_equal_length)]
-select_methods = ["NN - pretrained-tiny", "NN - pretrained-small", "NN - pretrained-large"]
+select_methods = ["NN - pretrained-small", "NN - pretrained-large", "CNN - pretrained-small", "NN - fine-tune-1"]
 
 
 # Initialize data and UI elements
 classifiers = load_classifiers() + list(custom_results.columns)
 paper_methods = ['HC2', 'MR-Hydra', 'RDST', 'H-InceptionTime', 'WEASEL-2.0', 'QUANT', 'FreshPRINCE', 'PF']
-top_methods = get_top_methods(5) + paper_methods
+top_methods = get_top_methods(6) # + paper_methods
 top_methods = list(set(top_methods)) + select_methods
 selected_methods = st.multiselect("Select Methods to Display:", classifiers, default=top_methods)
 
@@ -254,10 +255,54 @@ if selected_methods:
                 """, 
                 unsafe_allow_html=True
             )
-            axis_x = st.selectbox("", methods, index=methods.index("NN - pretrained-tiny"), label_visibility="collapsed")
+            axis_x = st.selectbox("", methods, index=methods.index("NN - pretrained-small"), label_visibility="collapsed")
         fig_ps, ax_ps = plot_pairwise_scatter(
             combined_df[axis_x], combined_df[axis_y], axis_x, axis_y
         )
         st.pyplot(fig_ps)
+        
+    
+    # Display the two plots side by side in Streamlit
+    st.title("🎯 Model bias")
+    best_results = accuracy_df.max(axis=1)
+    ts_length, num_classes = st.columns(2)
+    
+    with ts_length:
+        st.subheader("TimeSeries Length")
+        method = st.selectbox("", list(custom_results.columns), index=select_methods.index("NN - pretrained-small"), label_visibility="collapsed", key="tsl")
+        sel_method = custom_results[[method]]
+        sel_method["dataset"] = sel_method.index
+        sel_method["diff"] = sel_method[method] - best_results
+        sel_method["length"] = meta_df["length"]
+        print("SEL METHOD")
+        print(sel_method)
+        scatter = alt.Chart(sel_method).mark_circle(size=100).encode(
+            x=alt.X("length", title="Time Series Length"),
+            y=alt.Y("diff", title="Accuracy Difference"),
+            tooltip=["dataset", "length", "diff"]
+        ).properties(
+            width=700,
+            height=500
+        )
+        st.altair_chart(scatter, use_container_width=True)
+    
+    with num_classes:
+        st.subheader("Number of Classes")
+        method = st.selectbox("", list(custom_results.columns), index=select_methods.index("NN - pretrained-small"), label_visibility="collapsed", key="nc")
+        sel_method = custom_results[[method]]
+        sel_method["dataset"] = sel_method.index
+        sel_method["diff"] = sel_method[method] - best_results
+        sel_method["classes"] = meta_df["classes"]
+        print("SEL METHOD")
+        print(sel_method)
+        scatter = alt.Chart(sel_method).mark_circle(size=100).encode(
+            x=alt.X("classes", title="# Classes"),
+            y=alt.Y("diff", title="Accuracy Difference"),
+            tooltip=["dataset", "classes", "diff"]
+        ).properties(
+            width=700,
+            height=500
+        )
+        st.altair_chart(scatter, use_container_width=True)
 else:
     st.write("Please select at least one method to display results.")
