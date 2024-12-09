@@ -1,7 +1,10 @@
+import os
+import matplotlib
 import streamlit as st
 import pandas as pd
 import altair as alt
-import matplotlib
+from pymongo import MongoClient
+from dotenv import load_dotenv
 from matplotlib.patches import Rectangle
 from aeon.benchmarking.results_loaders import get_available_estimators, get_estimator_results_as_array
 from aeon.datasets.tsc_datasets import univariate_equal_length
@@ -20,10 +23,27 @@ st.set_page_config(
     layout="wide"
 )
 
+# MongoDB connection setup
+# Load environment variables from .env file
+load_dotenv()
+
+# Retrieve the MongoDB URI
+MONGO_URI = os.getenv("MONGO_URI")
+
+# Connect to MongoDB
+@st.cache_resource
+def get_mongo_client():
+    if not MONGO_URI:
+        raise ValueError("MongoDB URI is not set in the .env file.")
+    return MongoClient(MONGO_URI)
+
+client = get_mongo_client()
+db = client["ts-dashboard"]
+collection_results = db["classification"]
+collection_meta = db["meta_cls"]
+
 # Check the active Streamlit theme (light or dark)
 theme = st.get_option("theme.base")
-
-# Define color settings based on the theme
 if theme == "dark":
     background_color = "black"
     text_color = "white"
@@ -35,33 +55,38 @@ else:
     line_color = "blue"
     grid_color = "lightgray"
 
-# Cache loading of classifiers
+# Cache classifiers
 @st.cache_data
 def load_classifiers():
-    # return list(uni_classifiers_2023.keys())
     cls = get_available_estimators(task="classification")["classification"]
     return list(cls)
 
-# Load accuracy results and cache for efficiency
+# Fetch data from MongoDB
+@st.cache_data
+def fetch_from_mongodb(collection_name, filter_query=None, projection=None):
+    collection = db[collection_name]
+    cursor = collection.find(filter_query or {}, projection)
+    return pd.DataFrame(list(cursor))
+
+# Load accuracy results and cache
 @st.cache_data
 def load_all_accuracy_results():
-    # accuracy_results = get_bake_off_2023_results(default_only=False)
-    datasets = list(univariate_equal_length)
     classifiers = load_classifiers()
-    default_split_some, names = get_estimator_results_as_array(
+    datasets = list(univariate_equal_length)
+    default_split_some, _ = get_estimator_results_as_array(
         estimators=classifiers, datasets=datasets, measure="balacc"
     )
-    results_df = pd.DataFrame(
+    return pd.DataFrame(
         default_split_some, 
         columns=classifiers, 
         index=datasets
     )
-    return results_df
 
-# Load your custom results from CSV and calculate average accuracy
+# Load custom results from MongoDB
 @st.cache_data
-def load_custom_results(csv_path):
-    custom_df = pd.read_csv(csv_path)
+def load_custom_results():
+    # Fetch classification results from MongoDB
+    custom_df = fetch_from_mongodb("classification")
     custom_df["method"] = custom_df["method"] + " - " + custom_df["mode"]
     custom_df = custom_df.groupby(["method", "dataset"]).balacc.mean().unstack()
     return custom_df.T
@@ -79,8 +104,6 @@ def style_best_results(df):
         row = (row * 100).round(2)  # Convert to percentage
         sorted_row = row.sort_values(ascending=False)
         row = row.astype(str)
-        
-        # Apply bold and underline styles
         row[sorted_row.index[0]] = f'<strong style="color:green;">{row[sorted_row.index[0]]}</strong>'
         if len(row) > 1:
             row[sorted_row.index[1]] = f'<strong style="color:#CC6600;">{row[sorted_row.index[1]]}</strong>'
@@ -94,28 +117,24 @@ st.header("Balanced Accuracy Comparison of Time Series Classifiers")
 st.write("This dashboard compares balanced accuracy results for various time series classifiers across multiple datasets.")
 
 # Custom results
-csv_path = "classification_results.csv"
-custom_results = None
-custom_results = load_custom_results(csv_path)
+custom_results = load_custom_results()
 custom_results = custom_results.loc[list(univariate_equal_length)]
 select_methods = ["NN - pretrained-small", "NN - pretrained-large", "CNN - pretrained-small", "NN - fine-tune-1"]
-
 
 # Initialize data and UI elements
 classifiers = load_classifiers() + list(custom_results.columns)
 paper_methods = ['HC2', 'MR-Hydra', 'RDST', 'H-InceptionTime', 'WEASEL-2.0', 'QUANT', 'FreshPRINCE', 'PF']
-top_methods = get_top_methods(6) # + paper_methods
+top_methods = get_top_methods(6)
 top_methods = list(set(top_methods)) + select_methods
 selected_methods = st.multiselect("Select Methods to Display:", classifiers, default=top_methods)
 
-
-# Load and filter accuracy results dynamically based on selection
 if selected_methods:
     accuracy_df = load_all_accuracy_results()
     
-    # If custom results are uploaded, merge with benchmark results
+    # If custom results are loaded, merge with benchmark results
     if custom_results is not None:
-        meta_df = pd.read_csv("meta_results.csv", index_col="dataset")
+        meta_df = fetch_from_mongodb("meta-cls")
+        meta_df.set_index("dataset", inplace=True)
         combined_df = pd.concat([meta_df, accuracy_df, custom_results], axis=1)
         
         # Add tooltip information to each dataset name
@@ -128,15 +147,13 @@ if selected_methods:
                         f'Test: {int(row["test"])}</span></span>',
             axis=1
         )
-        combined_df = combined_df.drop(columns=["classes", "length", "channels", "train", "test"])        
+        combined_df = combined_df.drop(columns=["classes", "length", "channels", "train", "test"])   
     else:
         combined_df = accuracy_df
     
     combined_df = combined_df[selected_methods]
-    
-    # Sort and style data
-    combined_df['max_accuracy'] = combined_df.max(axis=1)  # Add max accuracy
-    combined_df = combined_df.sort_values(by='max_accuracy').drop(columns=['max_accuracy'])  
+    combined_df["max_accuracy"] = combined_df.max(axis=1)
+    combined_df = combined_df.sort_values(by="max_accuracy").drop(columns=["max_accuracy"])
         
     styled_df = style_best_results(combined_df)
     styled_html = styled_df.to_html(escape=False, index=True)
